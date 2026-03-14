@@ -1,0 +1,13 @@
+{
+  "name": "assignment2-aryan.parmar",
+  "version": "1.0.0",
+  "main": "app.js",
+  "scripts": {
+    "start": "npx http-server -c-1 -p 5000",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "Aryan Parmar",
+  "license": "MIT",
+  "description": ""
+}
