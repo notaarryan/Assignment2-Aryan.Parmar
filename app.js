@@ -97,6 +97,14 @@ class Hero extends GameObject {
   canFire() {
     return this.cooldown === 0;
   }
+
+  incrementPoints() {
+    this.points += 100;
+  }
+
+  decrementLife() {
+    this.life--;
+  }
 }
 class Enemy extends GameObject {
   constructor(x, y) {
@@ -116,7 +124,6 @@ class Enemy extends GameObject {
 }
 const onKeyDown = function (e) {
   console.log(e.keyCode);
-  e.preventDefault();
   switch (e.keyCode) {
     case 37:
     case 39:
@@ -143,6 +150,8 @@ window.addEventListener("keyup", (evt) => {
     eventEmitter.emit(Messages.KEY_EVENT_RIGHT);
   } else if (evt.code === "Space") {
     eventEmitter.emit(Messages.KEY_EVENT_SPACE);
+  } else if (evt.key === "Enter") {
+    eventEmitter.emit(Messages.KEY_EVENT_ENTER);
   }
 });
 
@@ -157,11 +166,15 @@ class EventEmitter {
     }
     this.listeners[message].push(listener);
   }
-  emit(message) {
+  emit(message, payload) {
     const listeners = this.listeners[message];
     if (listeners) {
-      listeners.forEach((l) => l());
+      listeners.forEach((l) => l(message, payload));
     }
+  }
+
+  clear() {
+    this.listeners = {};
   }
 }
 
@@ -173,6 +186,9 @@ const Messages = {
   KEY_EVENT_SPACE: "KEY_EVENT_SPACE",
   COLLISION_ENEMY_LASER: "COLLISION_ENEMY_LASER",
   COLLISION_ENEMY_HERO: "COLLISION_ENEMY_HERO",
+  GAME_END_LOSS: "GAME_END_LOSS",
+  GAME_END_WIN: "GAME_END_WIN",
+  KEY_EVENT_ENTER: "KEY_EVENT_ENTER",
 };
 
 let heroImg,
@@ -183,6 +199,7 @@ let heroImg,
   ctx,
   gameObjects = [],
   hero,
+  gameLoopId,
   eventEmitter = new EventEmitter();
 
 function initGame() {
@@ -215,6 +232,35 @@ function initGame() {
   eventEmitter.on(Messages.COLLISION_ENEMY_LASER, (_, { first, second }) => {
     first.dead = true;
     second.dead = true;
+    hero.incrementPoints();
+
+    if (isEnemiesDead()) {
+      eventEmitter.emit(Messages.GAME_END_WIN);
+    }
+  });
+
+  eventEmitter.on(Messages.COLLISION_ENEMY_HERO, (_, { enemy }) => {
+    enemy.dead = true;
+    hero.decrementLife();
+    if (isHeroDead()) {
+      eventEmitter.emit(Messages.GAME_END_LOSS);
+      return; // loss before victory
+    }
+    if (isEnemiesDead()) {
+      eventEmitter.emit(Messages.GAME_END_WIN);
+    }
+  });
+
+  eventEmitter.on(Messages.GAME_END_WIN, () => {
+    endGame(true);
+  });
+
+  eventEmitter.on(Messages.GAME_END_LOSS, () => {
+    endGame(false);
+  });
+
+  eventEmitter.on(Messages.KEY_EVENT_ENTER, () => {
+    resetGame();
   });
 }
 
@@ -244,11 +290,21 @@ function updateGameObjects() {
   // Test laser-enemy collisions
   lasers.forEach((laser) => {
     enemies.forEach((enemy) => {
-      const heroRect = hero.rectFromGameObject();
-      if (intersectRect(heroRect, enemy.rectFromGameObject())) {
-        eventEmitter.emit(Messages.COLLISION_ENEMY_HERO, { enemy });
+      const laserRect = laser.rectFromGameObject();
+      if (intersectRect(laserRect, enemy.rectFromGameObject())) {
+        eventEmitter.emit(Messages.COLLISION_ENEMY_LASER, {
+          first: laser,
+          second: enemy,
+        });
       }
     });
+  });
+
+  // Test enemy-hero collisions
+  enemies.forEach((enemy) => {
+    if (intersectRect(enemy.rectFromGameObject(), hero.rectFromGameObject())) {
+      eventEmitter.emit(Messages.COLLISION_ENEMY_HERO, { enemy });
+    }
   });
 
   // Remove destroyed objects
@@ -274,6 +330,60 @@ function drawText(message, x, y) {
   ctx.fillText(message, x, y);
 }
 
+function isHeroDead() {
+  return hero.life <= 0;
+}
+
+function isEnemiesDead() {
+  const enemies = gameObjects.filter((go) => go.type === "Enemy" && !go.dead);
+  return enemies.length === 0;
+}
+
+function displayMessage(message, color = "red") {
+  ctx.font = "30px Arial";
+  ctx.fillStyle = color;
+  ctx.textAlign = "center";
+  ctx.fillText(message, canvas.width / 2, canvas.height / 2);
+}
+
+function endGame(win) {
+  clearInterval(gameLoopId);
+
+  // Set a delay to ensure any pending renders complete
+  setTimeout(() => {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "black";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    if (win) {
+      displayMessage(
+        "Victory!!! Pew Pew... - Press [Enter] to start a new game Captain Pew Pew",
+        "green",
+      );
+    } else {
+      displayMessage(
+        "You died !!! Press [Enter] to start a new game Captain Pew Pew",
+      );
+    }
+  }, 200);
+}
+
+function resetGame() {
+  if (gameLoopId) {
+    clearInterval(gameLoopId);
+    eventEmitter.clear();
+    initGame();
+    gameLoopId = setInterval(() => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "black";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      drawPoints();
+      drawLife();
+      updateGameObjects();
+      drawGameObjects(ctx);
+    }, 100);
+  }
+}
+
 window.onload = async () => {
   canvas = document.getElementById("canvas");
   ctx = canvas.getContext("2d");
@@ -283,7 +393,7 @@ window.onload = async () => {
   lifeImg = await loadTexture("assets/life.png");
 
   initGame();
-  const gameLoopId = setInterval(() => {
+  gameLoopId = setInterval(() => {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = "black";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
